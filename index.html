@@ -85,6 +85,13 @@ select{font:inherit;background:var(--card);color:var(--ink);border:1px solid var
 <div>En el río</div><div class="sw" id="swr"></div>
 <div style="margin-top:10px">Partido de tenis</div><div class="sw" id="swt"></div>
 </div>
+<div class="panel"><h3>Partido de tenis: pronombres</h3>
+<label class="o"><input type="checkbox" id="allpro"> Siempre mostrar el pronombre <small>(nunca solo el verbo)</small></label>
+<label class="o"><input type="checkbox" id="either"> Aceptar cualquier respuesta válida cuando solo se muestra el verbo <small>(p. ej., "estudian" ➜ estudiamos o estudian)</small></label>
+</div>
+<div class="panel"><h3>Maestro</h3>
+<label class="o"><input type="checkbox" id="teach"> Modo de maestro <small>(barra espaciadora: mostrar respuesta ➜ siguiente pregunta)</small></label>
+</div>
 <div class="panel"><h3>Flechas del partido de tenis</h3><div id="arrs"></div></div>
 <div class="row"><button id="start">Empezar</button></div>
 </div>
@@ -195,13 +202,13 @@ const esS=(v,p,f)=>cap(`${p} ${f} ${SD[v.inf][0]}`)+'.';
 function boxH(st,t){const b=`<span class="bx">${t||'&nbsp;'}</span>`;
  if(st=='tb')return `<span class="tb"><span class="ar">↓</span>${b}<span class="ar">↑</span></span>`;
  return `<span class="tr"><span class="ar">→</span>${b}${st=='both'?'<span class="ar">←</span>':''}</span>`}
-const S={vs:[],act:'both',mode:'mc',tilde:false,sent:false,tr:'0',rc:'#cfe8f7',tc:'#f5d3bf',arr:'both',ok:0,n:0,streak:0,best:0,last:'',cur:null,done:false};
+const S={vs:[],act:'both',mode:'mc',tilde:false,sent:false,tr:'0',allpro:false,either:false,teach:false,rev:false,rc:'#cfe8f7',tc:'#f5d3bf',arr:'both',ok:0,n:0,streak:0,best:0,last:'',cur:null,done:false};
 const norm=s=>{s=s.toLowerCase().trim().replace(/\s+/g,' ');return S.tilde?s.normalize('NFD').replace(/[\u0300-\u036f]/g,''):s};
 function wrongForms(v,ansForm){
  const set=new Set();
  for(let i=0;i<5;i++)set.add(conj(v,i));
  if(!v.full)for(let i=0;i<5;i++)set.add(conj({inf:v.inf},i));
- set.delete(ansForm);
+ [].concat(ansForm).forEach(x=>set.delete(x));
  return shuf([...set]);
 }
 function mkQ(){
@@ -213,12 +220,13 @@ function mkQ(){
   q.prompt=sn?`${cap(p)} ${ul} (${v.inf}) ${c}.`:`${p} (${v.inf}) ${ul}`;if(sn){q.es=esS(v,p,q.form);q.en=enS(v,p)}
   q.opts=[q.form,...wrongForms(v,q.form).slice(0,3)].map((t,i)=>({t,ok:i==0}));
  }else{
-  const p=rnd(PN),r=PART[p]||p,vo=!!PART[p]&&Math.random()<.5;
-  const given=conj(v,IDX[p]);q.form=conj(v,IDX[r]);q.pro=r;
+  const p=rnd(PN),r=PART[p]||p,vo=!S.allpro&&!!PART[p]&&(p!='ustedes'||S.either)&&Math.random()<.5;
+  const given=conj(v,IDX[p]);q.form=conj(v,IDX[r]);q.pro=r;q.valid=[{pro:r,form:q.form}];
+  if(vo&&S.either)PN.filter(x=>conj(v,IDX[x])===given).forEach(sp=>{const r2=PART[sp]||sp,f2=conj(v,IDX[r2]);if(!q.valid.some(z=>z.pro==r2&&z.form==f2))q.valid.push({pro:r2,form:f2})});
   const g=vo?given:`${p} ${given}`;q.prompt=`<span>${sn?cap(g+' '+c)+'.':g}</span>`+boxH(S.arr,'');
-  q.hint=`(${v.inf}) · responder como el otro jugador`;if(sn){q.es=esS(v,r,q.form);q.en=enS(v,p);q.en2=enS(v,r)}
+  q.hint=`(${v.inf}) · responder como el otro jugador`;if(sn){q.es=esS(v,r,q.form);q.en=enS(v,p);q.en2=enS(v,r);q.valid.forEach(z=>z.es=esS(v,z.pro,z.form))}
   q.show=vo?q.form:`${r} ${q.form}`;
-  const w=wrongForms(v,q.form);
+  const w=wrongForms(v,q.valid.map(z=>z.form));
   if(vo)q.opts=[q.form,...w.slice(0,3)].map((t,i)=>({t,ok:i==0}));
   else{
    const op=rnd(PN.filter(x=>x!==r&&x!==p));
@@ -229,8 +237,8 @@ function mkQ(){
  return q;
 }
 function check(s){
- s=norm(s).replace(/[.!]$/,'');const q=S.cur,a=norm(q.form),pr=norm(q.pro);
- return s===a||s===pr+' '+a||(!!q.es&&s===norm(q.es).replace(/[.!]$/,''));
+ s=norm(s).replace(/[.!]$/,'');const q=S.cur;
+ return (q.valid||[{pro:q.pro,form:q.form,es:q.es}]).some(z=>{const a=norm(z.form);return s===a||s===norm(z.pro)+' '+a||(!!z.es&&s===norm(z.es).replace(/[.!]$/,''))});
 }
 function show(){
  const q=S.cur=mkQ();S.done=false;
@@ -238,7 +246,8 @@ function show(){
  $('tag').textContent=q.type=='r'?'En el río':'Partido de tenis';
  $('q').innerHTML=q.prompt;$('hint').textContent=q.hint;
  $('tren').textContent=S.sent&&S.tr=='always'?q.en:'';
- $('fb').innerHTML='';$('nx').classList.add('hide');
+ $('fb').innerHTML='';$('nx').classList.add('hide');S.rev=false;
+ if(S.teach){$('ans').innerHTML='';document.activeElement.blur();stats();return}
  if(S.mode=='mc'){
   $('ans').innerHTML='<div class="opts">'+q.opts.map((o,i)=>`<button data-i="${i}"><b>${i+1}</b>${o.t}</button>`).join('')+'</div>';
   $('ans').querySelectorAll('button').forEach(b=>b.onclick=()=>answer(+b.dataset.i));
@@ -250,7 +259,14 @@ function show(){
  }
  stats();
 }
-function stats(){$('stats').textContent=`${S.ok}/${S.n} · racha ${S.streak} · mejor ${S.best}`}
+function stats(){$('stats').textContent=S.teach?'Modo de maestro · espacio: respuesta / siguiente':`${S.ok}/${S.n} · racha ${S.streak} · mejor ${S.best}`}
+function reveal(ok){
+ const q=S.cur,ul=document.querySelector('#q .ul'),bx=document.querySelector('#q .bx');
+ if(ul)ul.textContent=q.fill;if(bx)bx.textContent=q.show;
+ const al=(q.valid||[]).length>1?q.valid.map(z=>z.es||`${z.pro} ${z.form}`).join(' / '):(q.es||q.show);
+ $('fb').innerHTML=ok===null?`<div class="fb ok">${al}</div>`:ok?`<div class="fb ok">¡Correcto! ${al}</div>`:`<div class="fb no">Respuesta correcta: <b>${al}</b></div>`;
+ if(S.sent&&(S.tr!='0'||S.teach))$('tren').textContent=q.en+(q.en2?' ➜ '+q.en2:'');
+}
 function answer(x){
  if(S.done)return;
  const q=S.cur;let ok;
@@ -263,16 +279,14 @@ function answer(x){
  }
  S.done=true;S.n++;
  if(ok){S.ok++;S.streak++;S.best=Math.max(S.best,S.streak)}else S.streak=0;
- const sh=q.es||q.show,ul=document.querySelector('#q .ul'),bx=document.querySelector('#q .bx');
- if(ul)ul.textContent=q.fill;if(bx)bx.textContent=q.show;
- $('fb').innerHTML=ok?`<div class="fb ok">¡Correcto! ${sh}</div>`:`<div class="fb no">Respuesta correcta: <b>${sh}</b></div>`;
- if(S.sent&&S.tr!='0')$('tren').textContent=q.en+(q.en2?' ➜ '+q.en2:'');
+ reveal(ok);
  $('nx').classList.remove('hide');$('nx').focus();stats();
 }
 $('start').onclick=()=>{
  S.vs=pool();if(S.vs.length<3){alert('Seleccionar al menos un grupo de verbos.');return}
  S.act=document.querySelector('[name=act]:checked').value;S.mode=document.querySelector('[name=mode]:checked').value;S.tilde=$('tilde').checked;
  S.sent=$('sent').checked;S.tr=S.sent?$('tr').value:'0';
+ S.allpro=$('allpro').checked;S.either=!S.allpro&&$('either').checked;S.teach=$('teach').checked;
  ['rc','tc','arr'].forEach(k=>S[k]=document.querySelector(`[name=${k}]:checked`).value);
  S.ok=S.n=S.streak=S.best=0;
  $('setup').classList.add('hide');$('game').classList.remove('hide');show();
@@ -283,9 +297,11 @@ $('swr').innerHTML=sw('rc',[['Azul','#cfe8f7'],['Menta','#d3f0de'],['Arena','#f1
 $('swt').innerHTML=sw('tc',[['Arcilla','#f5d3bf'],['Lima','#e3f1bd'],['Amarillo','#faeeae'],['Lila','#e4d8f4']]);
 $('arrs').innerHTML=[['both','A ambos lados'],['before','Solo antes'],['tb','Arriba y abajo']].map((a,i)=>`<label class="o"><input type="radio" name="arr" value="${a[0]}"${i?'':' checked'}> ${a[1]}<div class="pv"><span>tú hablas</span>${boxH(a[0],'')}</div></label>`).join('');
 $('tr').disabled=true;$('sent').onchange=()=>{$('tr').disabled=!$('sent').checked};
+$('allpro').onchange=()=>{$('either').disabled=$('allpro').checked};
 $('quit').onclick=()=>{$('game').classList.add('hide');$('setup').classList.remove('hide')};
 document.addEventListener('keydown',e=>{
  if($('game').classList.contains('hide'))return;
+ if(S.teach){if(e.code==='Space'){e.preventDefault();if(!e.repeat)S.rev?show():(S.rev=true,reveal(null))}return}
  if(e.key==='Enter'){if(S.done){e.preventDefault();show()}else if(S.mode=='fill'){e.preventDefault();answer($('inp').value)}}
  else if(S.mode=='mc'&&!S.done&&/^[1-4]$/.test(e.key))answer(+e.key-1);
 });
